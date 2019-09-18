@@ -1,6 +1,5 @@
 para='gau doo cro cho jac gs sor cg'
-File='3matrices'
-echo $1
+File=$1
 gcc main.c -o main -lm -lpthread
 mat=$(ls ${File})
 for name in ${para}
