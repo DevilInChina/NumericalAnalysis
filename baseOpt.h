@@ -7,6 +7,9 @@
 #include <stdlib.h>
 #include <time.h>
 #include <omp.h>
+#include <sys/time.h>
+#include <unistd.h>
+#define CORE_NUMBERS sysconf(_SC_NPROCESSORS_ONLN)
 #ifndef NUMBER_BASEOPT_H
 #define NUMBER_BASEOPT_H
 
@@ -16,13 +19,20 @@
 #define false 0
 
 #define USEPARALLEL
+///#define DOT_PARALLEL
+
 #define EPS 1e-5
 
 #define THRESHOLD 1e-8
 #define RESPRE 1e-4
 #define N 10005
 type temp[N];
+#define CORE_NUMBER 8
 #define MAX_ITER 1000
+
+void init(){
+   // CORE_NUMBER = CORE_NUMBERS;
+}
 
 //// one
 void swap(type *a,type*b){
@@ -31,7 +41,6 @@ void swap(type *a,type*b){
 void swapIJ(type *A,int i,int j,int beg,int n){
     type *a1 = A+n*j+beg;
     type *a2 = A+n*i+beg;
-    type *en = A+n*i+n;
     n-=beg;
 #ifdef USEPARALLEL
     #pragma omp parallel for
@@ -67,47 +76,63 @@ int isZero(const type Zero){
 }
 type temps[5000];
 
+#define llllll
+
+void ll_dotprod(type *result,type *a,type *b ,int len){
+    *result = 0.0;
+    type *ba = a;
+    type *bb = b;
+    type *ea = a+len;
+    while (ba!=ea){
+        *result+=(*ba)*(*bb);
+        ++ba;
+        ++bb;
+    }
+}
+
+
+void parallel_dotprod(type *result,type*a,type*b,int len){
+    type Tmps[CORE_NUMBER] ;//= malloc(sizeof(type)*(CORE_NUMBER));
+    // memset(Tmps,0, sizeof(type)*(CORE_NUMBER));
+    int tot = len/CORE_NUMBER;
+#pragma omp parallel for
+    for(int i = 0 ; i < CORE_NUMBER ; ++i){
+        ll_dotprod(Tmps+i,a+i*tot,b+i*tot,tot);
+    }
+    *result = 0.0;
+    ll_dotprod(result,a+CORE_NUMBER*tot,b+CORE_NUMBER*tot,len%CORE_NUMBER);
+    for(int i = 0 ; i < CORE_NUMBER ; ++i){
+        *result+=Tmps[i];
+    }
+}
+
+void dotprod(type *result,type*a,type*b,int len){
+#ifdef DOT_PARALLEL
+    parallel_dotprod(result,a,b,len);
+#else
+    ll_dotprod(result,a,b,len);
+#endif
+}
+
 type sumLrkUki( type*l, type*u,int r, int i,int n) {
     type re = 0.0;
+   // printf("%d %d\n",i,r);
     type *bel = l+r*n;
     type *enl = l+r*n+r;
-    type *beu = u+i;
-#ifdef one
-#pragma omp parallel for
-    for(int ii = 0 ; ii < r ; ++ii){
-        temps[ii] = bel[i]*beu[i*n];
-    }
-    for(int ii = 0 ;ii < r ; ++ii)re+=temps[ii];
-#else
-    while (bel!=enl){
-        re+=(*bel)*(*beu);
-        ++bel;
-        beu+=n;
-    }
-#endif
+    type *beu = u+i*n;
+    dotprod(&re,bel,beu,r);
     return re;
 }
+
 type sumLikUkr( type*l, type*u,int r, int i,int n){
     type re = 0.0;
     type *bel = l+i*n;
     type *enl = l+i*n+r;
-    type *beu = u+r;
-#ifdef two
-#pragma omp parallel for
-    for(int ii = 0 ; ii < r ; ++ii){
-        temps[ii] = bel[i]*beu[i*n];
-    }
-
-    for(int ii = 0 ;ii < r ; ++ii)re+=temps[ii];
-#else
-    while (bel!=enl){
-        re+=(*bel)*(*beu);
-        ++bel;
-        beu+=n;
-    }
-#endif
+    type *beu = u+r*n;
+    dotprod(&re,bel,beu,r);
     return re;
 }
+
 void calLow(const type*A,type*x,const type *b,int n){///no parallel
     for(int i = 0 ; i < n ; ++i){
         type k = 0;
@@ -117,11 +142,12 @@ void calLow(const type*A,type*x,const type *b,int n){///no parallel
         x[i] = (b[i]-k)/A[i*n+i];
     }
 }
+
 void calUp(const type *A,type*x,const type *b,int n){///no parallel
     for(int i = n-1 ; i >= 0 ; --i){
         type k = 0;
         for(int j = i ; j < n ; ++j){
-            k+=x[j]*A[i*n+j];
+            k+=x[j]*A[i+j*n];
         }
         x[i] = (b[i]-k)/A[i*n+i];
     }
@@ -178,22 +204,9 @@ void showMtx(type *a,int n,int m){
 }
 //// two
 
-void dotprod(type *result,type *a,type *b ,int len){
-    *result = 0.0;
-    type *ba = a;
-    type *bb = b;
-    type *ea = a+len;
-    while (ba!=ea){
-        *result+=(*ba)*(*bb);
-        ++ba;
-        ++bb;
-    }
-}
 
 
-
-
-void matvec(type *y,type *A,type *x,int m,int n){
+void ll_matvec(type *y,type *A,type *x,int m,int n){
     type *bA = A;
     type *eA = A+m*n;
     type *bx = x;
@@ -210,6 +223,12 @@ void matvec(type *y,type *A,type *x,int m,int n){
     }
 }
 
+void matvec(type *y,type *A,type *x,int m,int n){
+#pragma omp parallel for
+    for(int i = 0 ; i < m ; ++i){
+        dotprod(y+i,A+i*n,x,n);
+    }
+}
 void residual(type *A,type*x,type *b,type *y,int n){
     for(int i = 0 ; i < n ; ++i)y[i] = 0.0;
     matvec(y,A,x,n,n);
@@ -240,7 +259,6 @@ double dealRes(type *A,type *x,type *b,int cnt,int maxiter,int n){
     free(y);
     return sqrt(s);
 }
-
 
 void gauss(type *A,type *x,type *b,int n){
     int i,j;
@@ -324,14 +342,14 @@ void lu_crout(type *A,type *x,type *b,int n){
     type *u = (type *)malloc(sizeof(type)*n*n);
     for(int i = 0 ; i < n ; ++i){
         l[i*n] = A[i*n];
-        u[i] = A[i]/(*l);
+        u[i*n] = A[i]/(*l);
     }
 
     for(int r = 1; r < n ; ++r){
         for(int i = 1 ; i <= r; ++i){
             l[r*n+i] = A[r*n+i] - sumLrkUki(l,u,r, i,n);
             if(i==r) u[r*n+r]=1;
-            else u[i*n+r] = (A[i*n+r] - sumLikUkr(l,u,r, i,n)) / l[i*n+i];
+            else u[i+r*n] = (A[i*n+r] - sumLikUkr(l,u,r, i,n)) / l[i*n+i];
         }
     }
     type *y = (type*)malloc(sizeof(type)*n);
@@ -346,13 +364,13 @@ void lu_doolittle(type *A,type *x,type *b,int n){
     type *l = (type *)malloc(sizeof(type)*n*n);
     type *u = (type *)malloc(sizeof(type)*n*n);
     for(int i = 0 ; i < n ; ++i){
-        u[i] = A[i];
+        u[i*n] = A[i];
         l[i*n] = A[i*n]/(*u);
     }
 
     for(int r = 1; r < n ; ++r){
         for(int i = r ; i < n; ++i){
-            u[r*n+i] = A[r*n+i] - sumLrkUki(l,u,r, i,n);
+            u[r+i*n] = A[r*n+i] - sumLrkUki(l,u,r, i,n);
             if(i==r) l[r*n+r]=1;
             else l[i*n+r] = (A[i*n+r] - sumLikUkr(l,u,r, i,n)) / u[r*n+r];
         }
