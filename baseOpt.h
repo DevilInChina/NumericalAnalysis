@@ -27,7 +27,7 @@
 #define RESPRE 1e-4
 #define N 10005
 type temp[N];
-#define CORE_NUMBER 8
+#define CORE_NUMBER 1
 #define MAX_ITER 1000
 
 void init(){
@@ -76,7 +76,6 @@ int isZero(const type Zero){
 }
 type temps[5000];
 
-#define llllll
 
 void ll_dotprod(type *result,type *a,type *b ,int len){
     *result = 0.0;
@@ -116,9 +115,7 @@ void dotprod(type *result,type*a,type*b,int len){
 
 type sumLrkUki( type*l, type*u,int r, int i,int n) {
     type re = 0.0;
-   // printf("%d %d\n",i,r);
     type *bel = l+r*n;
-    type *enl = l+r*n+r;
     type *beu = u+i*n;
     dotprod(&re,bel,beu,r);
     return re;
@@ -127,7 +124,6 @@ type sumLrkUki( type*l, type*u,int r, int i,int n) {
 type sumLikUkr( type*l, type*u,int r, int i,int n){
     type re = 0.0;
     type *bel = l+i*n;
-    type *enl = l+i*n+r;
     type *beu = u+r*n;
     dotprod(&re,bel,beu,r);
     return re;
@@ -511,37 +507,107 @@ void sor(type *A, type *x, type *b, int n, int *iter, int *maxiter, type thresho
     }
 }
 
-void cg(type *A, type *x, type *b, int n, int *iter, int *maxiter, type threshold){
-    type *p = malloc(sizeof(type)*n);
-    residual(A,x,b,p,n);
-    type *r = malloc(sizeof(type)*n);
-    memcpy(r,p, sizeof(type)*n);
-    for(int i = 0 ; i < n ; ++i)x[i] = 0.0;
-    type rdot,rdot_1 = 1.0;
-    for(*iter = 0 ; *iter < *maxiter ; ++*iter){
-        dotprod(&rdot,r,r,n);
-        if(sqrt(rdot)<RESPRE) {
+void cg(type *A, type *x, type *b, int n, int *iter, int *maxiter, type threshold) {
+    type *p = malloc(sizeof(type) * n);
+    residual(A, x, b, p, n);
+    type *r = malloc(sizeof(type) * n);
+    memcpy(r, p, sizeof(type) * n);
+    for (int i = 0; i < n; ++i)x[i] = 0.0;
+    type rdot, rdot_1 = 1.0;
+    for (*iter = 0; *iter < *maxiter; ++*iter) {
+        dotprod(&rdot, r, r, n);
+        if (sqrt(rdot) < RESPRE) {
             break;
         }
         type beta;
-        if(!*iter);
+        if (!*iter);
         else {
             beta = rdot / rdot_1;
-            for(int i = 0 ; i < n ; ++i){
-                p[i] = r[i] + beta*p[i];
+            for (int i = 0; i < n; ++i) {
+                p[i] = r[i] + beta * p[i];
             }
         }
-        type alpha = getF(p,A,n);
-        alpha = rdot/alpha;
+        type alpha = getF(p, A, n);
+        alpha = rdot / alpha;
 
         //if(isnormal(alpha)){
-        for(int i = 0 ; i < n ; ++i){
-            x[i]+=p[i]*alpha;
-            r[i]-=temp[i]*alpha;
+        for (int i = 0; i < n; ++i) {
+            x[i] += p[i] * alpha;
+            r[i] -= temp[i] * alpha;
         }
-
         rdot_1 = rdot;
     }
+}
+
+
+type bisection(type (*func)(type),type left,type right,int* maxiter,type threshold){
+    type ret = (right+left)/2;
+    int cnt = 0;
+    while (fabs(right-left)>threshold){
+        if(cnt>*maxiter){
+            *maxiter = -1;///no solve
+            break;
+        }
+        ret = (right+left)/2;
+        if(func(right)*func(ret)<=0){
+            left = ret;
+        }else{
+            right = ret;
+        }
+        ++cnt;
+    }
+    *maxiter = cnt;
+    return ret;
+}
+
+type fixedpoint(type (*func)(type),type init,int *maxiter,type threshold){
+    type p =init;
+    int cnt = 0;
+    do{
+        if(cnt>*maxiter){
+            *maxiter = -1;
+            break;
+        }
+        ++cnt;
+        init = p;
+        p = func(p)+p;
+    }while (fabs(p-init)>threshold);
+    *maxiter = cnt;
+    return p;
+}
+
+type newtonraphson(type (*func)(type),type (*funcderivative)(type),type init,int *maxiter,type threshold){
+    type x = init;
+    int cnt = 0;
+    do{
+        if(cnt>*maxiter){
+            *maxiter = -1;
+            break;
+        }
+        ++cnt;
+        init = x;
+        x = x-func(x)/funcderivative(x);
+    }while (fabs(x-init)>threshold);
+    *maxiter = cnt;
+    return x;
+}
+
+type secant(type (*func)(type),type initx0,type initx1,int *maxiter,type threshold){
+    int cnt = 0;
+    type k,y;
+    do{
+        if(cnt>*maxiter){
+            *maxiter = -1;
+            break;
+        }
+        ++cnt;
+        y = func(initx0);
+        k = (y-func(initx1))/(initx0-initx1);
+        initx1 = initx0;
+        initx0 = initx0 - y/k;
+    }while (fabs(initx0-initx1)>threshold);
+    *maxiter = cnt;
+    return (initx0+initx1)/2;
 }
 
 #endif //NUMBER_BASEOPT_H
