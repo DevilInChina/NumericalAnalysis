@@ -27,10 +27,14 @@
 #define RESPRE 1e-4
 #define N 10005
 type temp[N];
-#define CORE_NUMBER 1
+#define CORE_NUMBER 4
 #define MAX_ITER 1000
-
+#define MALLOC(name,T,SIZE)\
+typeof(T)* name = (typeof(T)*)malloc(sizeof(T)*(SIZE))
 void init(){
+    int c;
+    typeof(c) x = 2;
+
    // CORE_NUMBER = CORE_NUMBERS;
 }
 
@@ -88,7 +92,30 @@ void ll_dotprod(type *result,type *a,type *b ,int len){
         ++bb;
     }
 }
-
+void l2_dotprod(type *result,type *a,type *b ,int len){
+    *result = 0.0;
+    type *ba = a;
+    type *bb = b;
+    type *ea = a+len/CORE_NUMBER*CORE_NUMBER;
+    type *tea = a+len;
+    type res[CORE_NUMBER] = {0};
+    for(;ba!=ea; ba+=CORE_NUMBER,bb+=CORE_NUMBER){
+        res[0]+=ba[0]*bb[0];
+        res[1]+=ba[1]*bb[1];
+        res[2]+=ba[2]*bb[2];
+        res[3]+=ba[3]*bb[3];
+        /*res[4]+=ba[4]*bb[4];
+        res[5]+=ba[5]*bb[5];
+        res[6]+=ba[6]*bb[6];
+        res[7]+=ba[7]*bb[7];*/
+    }
+    while (ba!=tea){
+        *result+=*ba*(*bb);
+        ++ba;
+        ++bb;
+    }
+    for(int i = 0 ;i < CORE_NUMBER ; ++i)*result+=res[i];
+}
 
 void parallel_dotprod(type *result,type*a,type*b,int len){
     type Tmps[CORE_NUMBER] ;//= malloc(sizeof(type)*(CORE_NUMBER));
@@ -193,7 +220,7 @@ void loadA_b(char*filePath,type **A,type **b,int *n) {///alloc a memory
 void showMtx(type *a,int n,int m){
     for(int i = 0 ; i < n ; ++i){
         for(int j = 0 ; j < m ; ++j){
-            printf("%5.2f",*(a+i*m+j));
+            printf("%7.2f",*(a+i*m+j));
         }
         printf("\n");
     }
@@ -608,6 +635,154 @@ type secant(type (*func)(type),type initx0,type initx1,int *maxiter,type thresho
     }while (fabs(initx0-initx1)>threshold);
     *maxiter = cnt;
     return (initx0+initx1)/2;
+}
+
+void polynomial_interopolation(int n,const type *x,type *y,type *a,type threshold){
+    MALLOC(A,type,n*n);
+    type *Ae = A+n*n;
+    int ii = 0;
+    for(type*col = A ; col!=Ae ;){
+        type k = 1;
+        for(int j = 0 ; j < n ; ++j,++col){
+            *col = k;
+            k*=x[ii];
+        }
+        ++ii;
+    }
+    lu_crout(A,a,y,n);
+    free(A);
+}
+
+type lagrange_interopolation(int n,const type *x,type *y,type a,type threshold){
+    type A = 1.0;
+    for(int i = 0 ; i < n ; ++i) {
+        A *= (a - x[i]);
+        if(fabsf(a-x[i])<threshold){
+            return y[i];
+        }
+    }
+    type ret = 0.0;
+    for(int i = 0 ; i < n ; ++i){
+        type B = y[i];
+        for(int j = 0 ; j < n ; ++j){
+            if(i==j)continue;
+            B/=(x[i]-x[j]);
+        }
+        ret+=B*A/(a-x[i]);
+    }
+    return ret;
+}
+
+type newtown_interopolation(int n,const type *x,type *y,type a,type threshold){
+    MALLOC(dif,type,n*(n-1)/2);
+    int las = n;
+    type *beg = dif;
+    type ret = 0;
+    for(int i = 1 ; i < n ; ++i){///n-1
+        beg[i-1] = (y[i] - y[i-1])/(x[i]-x[i-1]);
+    }
+    type B = a-x[0];
+    ret += y[0]+beg[0]*B;
+    int cnt = 1;
+    for(int i = 2 ; i < n ; ++i){///n-2
+        --las;
+        beg+=las;
+        B*=(a-x[i-1]);
+        for(int j = 0 ; j < n - i ; ++j){
+            beg[j] = (*(beg+j-las+1)-*(beg-las+j))/(x[j+i]-x[j]);
+        }
+        ret+=(*beg)*B;
+    }
+    free(dif);
+    return ret;
+}
+void deal_origin(type *a,type x,int n,int mark){
+    a[0] = mark;
+    for(int i = 1 ; i < n ; ++i){
+        a[i] = a[i-1]*x;
+    }
+}
+void deal_dif1(type *a,type x, int n,int mark){
+    type k = 1;
+    int fac = 1;
+    a[0] = 0;
+    for(int i = 1; i < n ; ++i){
+        a[i] = k*fac*mark;
+        k*=x;
+        ++fac;
+    }
+}
+void deal_dif2(type *a,type x,int n,int mark){
+    type k = 1;
+    int fac = 2;
+    a[0] = a[1] =0;
+    for(int i = 2 ; i < n ; ++i){
+        a[i] = k*fac*mark;
+        k*=x;
+        fac*=(i+1);
+        fac/=(i-1);
+    }
+}
+
+void cubic_spline_interpolation(int n,const type *x,type *y,type*a,type threshold){
+    MALLOC(A,type,16*(n-1)*(n-1));
+    MALLOC(Y,type,4*(n-1));
+    memset(A,0, sizeof(type)*16*(n-1)*(n-1));
+    memset(Y,0, sizeof(type)*4*(n-1));
+    int len = 4*(n-1);
+    type *curL = A;
+    for(int i = 0 ; i < n-1 ; ++i){
+        deal_origin(curL+i*4,x[i],4,1);
+        Y[i] = y[i];
+        curL+=len;
+    }
+    Y[n-1] = y[n-1];
+    deal_origin(curL+(n-2)*4,x[n-1],4,1);
+    curL+=len;
+    for(int i = 1 ; i < n-1 ; ++i){/// 3*n-6 equ
+        deal_origin(curL+i*4-4,x[i],4,1);
+        deal_origin(curL+i*4,x[i],4,-1);
+        curL+=len;
+        deal_dif1(curL+i*4-4,x[i],4,1);
+        deal_dif1(curL+i*4,x[i],4,-1);
+        curL+=len;
+        deal_dif2(curL+i*4-4,x[i],4,1);
+        deal_dif2(curL+i*4,x[i],4,-1);
+        curL+=len;
+    }
+    deal_dif1(curL,x[0],4,1);///1
+    curL+=len;
+    deal_dif2(curL+4*(n-2),x[n-1],4,1);////1
+
+   // showMtx(A,len,len);
+  //  showMtx(Y,len,1);
+    /////1+1+n+3*n-6 = 4*n-4
+
+    int cnt=0,maxcnt = 1000;
+    gauss(A,a,Y,len);
+    //showMtx(A,len,len);
+}
+
+void power(type *eigenvalues,type *A,int n,int *maxiter,type threshold) {
+    MALLOC(eigenvector, type, n);
+    MALLOC(eigenvector_new, type, n);
+    for (int i = 0; i < n; ++i)eigenvector[i] = 1;
+    float evalue = eigenvector[0];
+    float evalue_new;
+    int iter = 0;
+    float error = 0;
+    long long sz = sizeof(type) * n;
+    do {
+        matvec(eigenvector_new,A, eigenvector,n,n);
+        evalue_new = eigenvector_new[0];
+        for (int i = 0; i < n; ++i)eigenvector_new[i] /= evalue_new;
+        memcpy(eigenvector, eigenvector_new, sz);
+        error = fabsf((evalue_new - evalue) / evalue_new);
+        evalue = evalue_new;
+        ++iter;
+    } while (iter < *maxiter && error > threshold);
+    eigenvalues[0] = evalue;
+    free(eigenvector);
 }
 
 #endif //NUMBER_BASEOPT_H
