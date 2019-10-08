@@ -81,7 +81,7 @@ int isZero(const type Zero){
 type temps[5000];
 
 
-void ll_dotprod(type *result,type *a,type *b ,int len){
+void l2_dotprod(type *result,type *a,type *b ,int len){
     *result = 0.0;
     type *ba = a;
     type *bb = b;
@@ -92,7 +92,7 @@ void ll_dotprod(type *result,type *a,type *b ,int len){
         ++bb;
     }
 }
-void l2_dotprod(type *result,type *a,type *b ,int len){
+void ll_dotprod(type *result,type *a,type *b ,int len){
     *result = 0.0;
     type *ba = a;
     type *bb = b;
@@ -115,6 +115,18 @@ void l2_dotprod(type *result,type *a,type *b ,int len){
         ++bb;
     }
     for(int i = 0 ;i < CORE_NUMBER ; ++i)*result+=res[i];
+}
+
+void trans_to_T_matrix(type*A,int n,int m){
+    MALLOC(tempA,type,m*n);
+
+    for(int i = 0 ; i < n ; ++i){
+        for(int j = 0 ; j < m ;++j){
+            tempA[j*n+i] = A[i*m+j];
+        }
+    }
+    memcpy(A,tempA, sizeof(type)*n*m);
+    free(tempA);
 }
 
 void parallel_dotprod(type *result,type*a,type*b,int len){
@@ -218,16 +230,42 @@ void loadA_b(char*filePath,type **A,type **b,int *n) {///alloc a memory
 }
 
 void showMtx(type *a,int n,int m){
+    printf("[");
     for(int i = 0 ; i < n ; ++i){
+        printf("[");
         for(int j = 0 ; j < m ; ++j){
             printf("%7.2f",*(a+i*m+j));
+            if(j!=m-1)printf(",");
         }
-        printf("\n");
+        printf("]");
+        if(i!=n-1)printf(",\n");
     }
+    printf("]\n");
 }
 //// two
 
+void axpby(type a,const type *x,type b,type*y,int n){
+#pragma omp parallel for
+    for(int i = 0 ; i < n ; ++i){
+        y[i]=a*x[i]+b*y[i];
+    }
+}
 
+void eable(type *A,int n){
+    type res;
+    dotprod(&res,A,A,n);
+    res = sqrt(res);
+    for(int i = 0 ; i < n ; ++i){
+        A[i]/=res;
+    }
+}
+
+void one_able(type *A,int n){
+    type f=A[0];
+    for(int i = 0 ; i < n ; ++i){
+        A[i]/=f;
+    }
+}
 
 void ll_matvec(type *y,type *A,type *x,int m,int n){
     type *bA = A;
@@ -281,6 +319,20 @@ double dealRes(type *A,type *x,type *b,int cnt,int maxiter,int n){
     }
     free(y);
     return sqrt(s);
+}
+
+void matmat(type *C,type *A,type *B,int m,int k,int n){
+    trans_to_T_matrix(B,k,n);
+    memset(C,0, sizeof(type)*m*n);
+#pragma omp parallel for
+    for(int i = 0 ; i < m ; ++i){
+        for(int j = 0 ; j < n ; ++j){
+            for(int kk = 0 ; kk < k ; ++kk){
+                C[i*n+j]+=A[i*k+kk]*B[j*k+kk];
+            }
+        }
+    }
+    trans_to_T_matrix(B,n,k);
 }
 
 void gauss(type *A,type *x,type *b,int n){
@@ -566,7 +618,6 @@ void cg(type *A, type *x, type *b, int n, int *iter, int *maxiter, type threshol
     }
 }
 
-
 type bisection(type (*func)(type),type left,type right,int* maxiter,type threshold){
     type ret = (right+left)/2;
     int cnt = 0;
@@ -696,12 +747,14 @@ type newtown_interopolation(int n,const type *x,type *y,type a,type threshold){
     free(dif);
     return ret;
 }
+
 void deal_origin(type *a,type x,int n,int mark){
     a[0] = mark;
     for(int i = 1 ; i < n ; ++i){
         a[i] = a[i-1]*x;
     }
 }
+
 void deal_dif1(type *a,type x, int n,int mark){
     type k = 1;
     int fac = 1;
@@ -712,6 +765,7 @@ void deal_dif1(type *a,type x, int n,int mark){
         ++fac;
     }
 }
+
 void deal_dif2(type *a,type x,int n,int mark){
     type k = 1;
     int fac = 2;
@@ -763,7 +817,7 @@ void cubic_spline_interpolation(int n,const type *x,type *y,type*a,type threshol
     //showMtx(A,len,len);
 }
 
-void power(type *eigenvalues,type *A,int n,int *maxiter,type threshold) {
+void power(type *eigenvalues,type*eigen_vec,type *A,int n,int *maxiter,type threshold) {
     MALLOC(eigenvector, type, n);
     MALLOC(eigenvector_new, type, n);
     for (int i = 0; i < n; ++i)eigenvector[i] = 1;
@@ -781,8 +835,125 @@ void power(type *eigenvalues,type *A,int n,int *maxiter,type threshold) {
         evalue = evalue_new;
         ++iter;
     } while (iter < *maxiter && error > threshold);
-    eigenvalues[0] = evalue;
+    *eigenvalues = evalue;
+    memcpy(eigen_vec,eigenvector_new, sizeof(type)*n);
+    one_able(eigen_vec,n);
     free(eigenvector);
+    free(eigenvector_new);
+}
+
+void descend_power(type *ans,type *A,int n,int *maxiter,type threshold){
+    MALLOC(As,type,n*n);
+    memcpy(As,A, sizeof(type)*n*n);
+    MALLOC(vecA,type,n);
+    MALLOC(ev,type,n);
+    MALLOC(va,type,n*n);
+    for(int i = 0 ; i < n ; ++i){
+        int maxs = *maxiter;
+        power(ans+i,ev,As,n-i,&maxs,threshold);
+        memcpy(vecA,As, sizeof(type)*(n-i));
+        int tot = n-i-1;
+        matmat(va,ev,vecA,tot+1,1,tot+1);
+        axpby(-1.0,va,1.0,As,(n-i)*(n-i));
+        for(int j = 0 ; j < tot ; ++j){
+            for(int k = 0 ; k < tot ; ++k){
+                As[j*(tot)+k] = As[(j+1)*(tot+1)+k+1];
+            }
+        }
+    //    showMtx(As,n,n);
+    }
+    free(vecA);
+    free(As);
+    free(ev);
+    free(va);
+}
+
+#define show(x,ch)\
+printf("%.5lf%c",x,ch);fflush(stdout)
+void schmidt_orthogonalization(type *A,int n,int m){
+    int flag = n<m;
+    trans_to_T_matrix(A,n,m);
+    MALLOC(beta_vec,(A),m);
+    MALLOC(alph_vec,(A),m);
+    MALLOC(dot_beta,type,m);
+    MALLOC(dot_alpha,type,m);
+    for(int i = 0 ; i < m ; ++i){
+        beta_vec[i] = A+i*n;
+        alph_vec[i] = A+i*n;
+    }
+    for(int i = 1 ; i < m ; ++i){////m
+        dotprod(dot_beta+i-1,beta_vec[i-1],beta_vec[i-1],n);////cal dot beta[i-1]
+#pragma omp parallel for
+        for(int j = 0 ; j < i ; ++j){/////m*m
+            dotprod(dot_alpha+j,alph_vec[i],beta_vec[j],n);/////m*m*n
+            //// cal dot a[i]*b[j] to alp[j]
+        }
+        for(int j = 0 ; j < i ; ++j){////non-parallel
+            axpby(-dot_alpha[j] / dot_beta[j],beta_vec[j],1,alph_vec[i],n);
+
+        }
+     //  exit(0);
+    }
+    for(int i = 0 ; i < m ;++i){
+        eable(alph_vec[i],n);
+    }
+    free(dot_beta);
+    free(dot_alpha);
+    free(beta_vec);
+    free(alph_vec);
+    trans_to_T_matrix(A,m,n);
+}
+
+
+void qr(type*Q,type*R,type *A,int n,int m){
+    memcpy(Q,A, sizeof(type)*n*m);
+    schmidt_orthogonalization(Q,n,m);
+    trans_to_T_matrix(Q,n,m);
+    matmat(R,Q,A,m,n,m);
+   // showMtx(R,m,m);
+    trans_to_T_matrix(Q,m,n);
+}
+
+#define Sp(x) ((x)*(x))
+
+void qrqeigensolver(type*ans,type*A,int n,int *maxiter,type threshold){
+    MALLOC(newA1,type,n*n);
+    MALLOC(newA2,type,n*n);
+    MALLOC(Q,type,n*n);
+    MALLOC(R,type,n*n);
+    memcpy(newA1,A, sizeof(type)*n*n);
+    type error = 0;
+
+    int iterator = 0;
+    do{
+        error = 0;
+        if(iterator>*maxiter){
+            *maxiter = -1;
+            break;
+        }
+        qr(Q,R,newA1,n,n);
+        matmat(newA2,R,Q,n,n,n);
+        for(int i = 0 ; i < n ; ++i){
+            error+=Sp(newA2[i*n+i]-newA1[i*n+i]);
+        }
+        memcpy(newA1,newA2, sizeof(type)*n*n);
+        ++iterator;
+        error = sqrt(error);
+        printf("%lf\n",error);
+    }while (error>threshold);
+
+    if(*maxiter!=-1){
+        *maxiter = iterator;
+    }
+    for(int i = 0 ; i < n ; ++i){
+        ans[i] = newA1[i*n+i];
+    }
+
+    free(Q);
+    free(R);
+    free(newA1);
+    free(newA2);
+
 }
 
 #endif //NUMBER_BASEOPT_H
