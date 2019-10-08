@@ -24,4 +24,4 @@ int main() {
     showMtx(ans, 1, n);
 //    showMtx(vec,1,n);
 }
-/// -3.44 2.66 0.445599
+/// gcc eigensolve.c -o main -lm -fopenmp -lpthread
