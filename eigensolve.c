@@ -4,24 +4,22 @@
 #include "baseOpt.h"
 const int maxs=1024*1024;
 
-int main() {
-    freopen("/home/devilinchina/CLionProjects/number/data.txt", "r", stdin);
-    int n;
-    scanf("%d", &n);
+int main(int argc,char *argv[]) {
+    int n,m;
+    type*x=loadMtx(argv[2],&n,&m);
 
-    MALLOC(x, type, n * n);
-    for (int i = 0; i < n; ++i) {
-        for (int j = 0; j < n; ++j) {
-            scanf("%f", x + i * n + j);
-        }
-    }
     MALLOC(ans, type, n);
     int maxss = 5000;
-    qrqeigensolver(ans, x, n, &maxss, 0.0001);
-
-    //descend_power(ans ,x, n, &maxss, 0.0001);
+    if(strcmp(argv[1],"qr")==0) {
+        qrqeigensolver(ans, x, n, &maxss, 0.0001);
+    }else if(strcmp(argv[1],"desc")==0){
+        descend_power(ans ,x, n, &maxss, 0.0001);
+    }else{
+        printf("error\n");
+        return 0;
+    }
 
     showMtx(ans, 1, n);
 //    showMtx(vec,1,n);
 }
-/// gcc eigensolve.c -o main -lm -fopenmp -lpthread
+///
