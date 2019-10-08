@@ -18,12 +18,12 @@ int main(int argc,char *argv[]){
     if(strcmp(argv[1],"poly")==0) {
         polynomial_interopolation(n, x, y, a, THRESHOLD);
     }else if(strcmp(argv[1],"lag")==0){
-        for(type xx = -1.0 ; xx<=1.0 ; xx+=0.01){
+        for(type xx = -1.0 ; xx<1.0 ; xx+=0.01){
             printf("%.5f\n",lagrange_interopolation(n,x,y,xx,THRESHOLD));
         }
         showed = 1;
     }else if(strcmp(argv[1],"newtown")==0){
-        for(type xx = -1.0 ; xx<=1.0 ; xx+=0.01){
+        for(type xx = -1.0 ; xx<1.0 ; xx+=0.01){
             printf("%.5f\n",newtown_interopolation(n,x,y,xx,THRESHOLD));
         }
         showed = 1;
