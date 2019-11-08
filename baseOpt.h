@@ -768,28 +768,30 @@ void polynomial_interopolation(int n,const type *x,type *y,type *a,type threshol
     free(A);
 }
 
-type lagrange_interopolation(int n,const type *x,type *y,type a,type threshold){
+type lagrange_interopolation(int n,const type *x,type *y,type a,type threshold) {
     type A = 1.0;
-    for(int i = 0 ; i < n ; ++i) {
+    for (int i = 0; i < n; ++i) {
         A *= (a - x[i]);
-        if(fabsf(a-x[i])<threshold){
+        if (fabsf(a - x[i]) < threshold) {
             return y[i];
         }
     }
     type ret = 0.0;
-    for(int i = 0 ; i < n ; ++i){
+    for (int i = 0; i < n; ++i) {
         type B = y[i];
-        for(int j = 0 ; j < n ; ++j){
-            if(i==j)continue;
-            B/=(x[i]-x[j]);
+        for (int j = 0; j < n; ++j) {
+            if (i == j)continue;
+            B /= (x[i] - x[j]);
         }
-        ret+=B*A/(a-x[i]);
+        ret += B * A / (a - x[i]);
     }
     return ret;
-}
+}/**
+ (x-x1)(x-x2)(x-x3)y0/((x0-x1)(x0-x2)(x0-x3))
+ */
 
 type newtown_interopolation(int n,const type *x,type *y,type a,type threshold){
-    MALLOC(dif,type,n*(n-1)/2);
+    CALLOC(dif,type,n*(n-1)/2);
     int las = n;
     type *beg = dif;
     type ret = 0;
@@ -804,6 +806,7 @@ type newtown_interopolation(int n,const type *x,type *y,type a,type threshold){
         beg+=las;
         B*=(a-x[i-1]);
         for(int j = 0 ; j < n - i ; ++j){
+            ///
             beg[j] = (*(beg+j-las+1)-*(beg-las+j))/(x[j+i]-x[j]);
         }
         ret+=(*beg)*B;
@@ -843,19 +846,19 @@ void deal_dif2(type *a,type x,int n,int mark){
 }
 
 void cubic_spline_interpolation(int n,const type *x,type *y,type*a,type threshold){
-    MALLOC(A,type,16*(n-1)*(n-1));
-    MALLOC(Y,type,4*(n-1));
-    memset(A,0, sizeof(type)*16*(n-1)*(n-1));
-    memset(Y,0, sizeof(type)*4*(n-1));
+    CALLOC(A,type,16*(n-1)*(n-1));
+    CALLOC(Y,type,4*(n-1));
+    //memset(A,0, sizeof(type)*16*(n-1)*(n-1));
+    //memset(Y,0, sizeof(type)*4*(n-1));
     int len = 4*(n-1);
     type *curL = A;
-    for(int i = 0 ; i < n-1 ; ++i){
+    for(int i = 0 ; i < n-1 ; ++i){/// n-1
         deal_origin(curL+i*4,x[i],4,1);
         Y[i] = y[i];
         curL+=len;
     }
     Y[n-1] = y[n-1];
-    deal_origin(curL+(n-2)*4,x[n-1],4,1);
+    deal_origin(curL+(n-2)*4,x[n-1],4,1);/// 1
     curL+=len;
     for(int i = 1 ; i < n-1 ; ++i){/// 3*n-6 equ
         deal_origin(curL+i*4-4,x[i],4,1);
@@ -1401,6 +1404,68 @@ void svd(type *img,int n){
     showMtx(ans,n,n);
 }
 
+float func1(type x,type y){
+    return x+2*y;
+}
+type euler(type (*func)(type x,type y),type h,type x0, type y0,type xn) {
+    type x_old = x0;
+    type y_old = y0;
+    type x_new, y_new;
+    do {
+        x_new = x_old + h;
+        y_new = y_old + h * func(x_old, y_old);
+        x_old = x_new;
+        y_old = y_new;
+    } while (x_new < xn);
+    return y_new;
+}
+float midpoint(type (*func)(type x,type y),type h,type x0, type y0,type xn) {
+    type x_old = x0;
+    type y_old = y0;
+    type x_new, y_new;
+    type K;
+    do {
+        K = func(x_old, y_old);
+        K = func(x_old + 0.5 * h, y_old + 0.5 * K * h);
+        x_new = x_old + h;
+        y_new = y_old + K * h;
+        x_old = x_new;
+        y_old = y_new;
+    } while (x_new < xn);
+    return y_new;
+}
+float rungekutta2nd(type (*func)(type x,type y),type h,type x0, type y0,type xn) {
+    type x_old = x0;
+    type y_old = y0;
+    type x_new, y_new;
+    type k1, k2;
+    do {
+        k1 = func(x_old, y_old);
+        k2 = func(x_old + h, y_old + k1 * h);
+        x_new = x_old + h;
+        y_new = y_old + (k1 + k2) / 2 * h;
+        x_old = x_new;
+        y_old = y_new;
+    } while (x_new < xn);
+    return y_new;
+}
+float rungekutta4th(type (*func)(type x,type y),type h,type x0, type y0,type xn){
+    type x_old=x0;
+    type y_old=y0;
+    type x_new,y_new;
+    type k1,k2,k3,k4;
+    do{
+        k1=func(x_old,y_old);
+        k2=func(x_old+0.5*h,y_old+0.5*k1*h);
+        k3=func(x_old+0.5*h,y_old+0.5*k2*h);
+        k4=func(x_old+h,y_old+k3*h);
+        x_new=x_old+h;
+        y_new=y_old+(k1+k2*2+k3*2+k4)*h/6.0;
+        x_old=x_new;
+        y_old=y_new;
+    }while(x_new<xn);
+    return y_new;
+}
 
 
 #endif //NUMBER_BASEOPT_H
