@@ -43,7 +43,7 @@ void init(){
     int c;
     typeof(c) x = 2;
 
-   // CORE_NUMBER = CORE_NUMBERS;
+    // CORE_NUMBER = CORE_NUMBERS;
 }
 
 //// one
@@ -55,7 +55,7 @@ void swapIJ(type *A,int i,int j,int beg,int n){
     type *a2 = A+n*i+beg;
     n-=beg;
 #ifdef USEPARALLEL
-    #pragma omp parallel for
+#pragma omp parallel for
     for(int ii =0  ; ii < n ; ++ii){
         swap(a1+ii,a2+ii);
     }
@@ -66,10 +66,10 @@ void swapIJ(type *A,int i,int j,int beg,int n){
     }
 #endif
 }
+/// use in gauss solver, function as name.
 void addKi_to_j(type *A ,type k, int i,int j,int beg,int n){
     type *a1 = A+n*j+beg;
     type *a2 = A+n*i+beg;
-    type *en = A+n*i+n;
     n-=beg;
 #ifdef USEPARALLEL
 #pragma omp parallel for
@@ -87,24 +87,25 @@ int isZero(const type Zero){
     return fabs(Zero)<EPS;
 }
 
-
-void l2_dotprod(type *result,type *a,type *b ,int len){
+/// calculate dot product in different way choose different function when face different scale
+void l2_dotprod(type *result,const type *a,const type *b ,int len){
     *result = 0.0;
-    type *ba = a;
-    type *bb = b;
-    type *ea = a+len;
+    const type *ba = a;
+    const type *bb = b;
+    const type *ea = a+len;;
     while (ba!=ea){
         *result+=(*ba)*(*bb);
         ++ba;
         ++bb;
     }
 }
-void ll_dotprod(type *result,type *a,type *b ,int len){
+void ll_dotprod(type *result,const type *a,const type *b ,int len){
     *result = 0.0;
-    type *ba = a;
-    type *bb = b;
-    type *ea = a+len/CORE_NUMBER*CORE_NUMBER;
-    type *tea = a+len;
+    const type *ba = a;
+    const type *bb = b;
+
+    const type *ea = a+len/CORE_NUMBER*CORE_NUMBER;
+    const type *tea = a+len;
     type res[CORE_NUMBER] = {0};
     for(;ba!=ea; ba+=CORE_NUMBER,bb+=CORE_NUMBER){
         res[0]+=ba[0]*bb[0];
@@ -123,37 +124,9 @@ void ll_dotprod(type *result,type *a,type *b ,int len){
     }
     for(int i = 0 ;i < CORE_NUMBER ; ++i)*result+=res[i];
 }
-#define trans_Next(i,m,n)\
-((i)%(n)*(m))+((i)/(n))
 
-#define trans_Prev(i,m,n)\
-((i)%(m)*(n))+((i)/(m))
-void transMoveData(type *mtx,int i,int m,int n){
-    type s = mtx[i];
-    int cur = i;
-    int pre = trans_Prev(i,m,n);
-    while (pre!=i){
-        mtx[cur]=mtx[pre];
-        cur = pre;
-        pre = trans_Prev(cur,m,n);
-    }
-    mtx[cur] = s;
-}
-void trans_to_T_matrix(type*A,int m,int n){
-  //  MALLOC(tempA,type,m*n);
-    int k = m*n;
-    for(int i = 0 ; i < k ; ++i){
-        int next = trans_Next(i,m,n);
-        while (next>i){
-            next = trans_Next(next,m,n);
-        }
-        if(next==i){
-            transMoveData(A,i,m,n);
-        }
-    }
-}
 
-void parallel_dotprod(type *result,type*a,type*b,int len){
+void parallel_dotprod(type *result,const type*a, const type*b,int len){
     type Tmps[CORE_NUMBER] ;//= malloc(sizeof(type)*(CORE_NUMBER));
     // memset(Tmps,0, sizeof(type)*(CORE_NUMBER));
     int tot = len/CORE_NUMBER;
@@ -168,14 +141,8 @@ void parallel_dotprod(type *result,type*a,type*b,int len){
     }
 }
 
-void setXtoA(type *X,type A,int len){
-#pragma omp parallel for
-    for(int i = 0 ; i < len ; ++i){
-        X[i] = A;
-    }
-}
 
-void dotprod(type *result,type*a,type*b,int len){
+void dotprod(type *result,const type*a,const type*b,int len){
 #ifdef DOT_PARALLEL
     parallel_dotprod(result,a,b,len);
 #else
@@ -183,21 +150,65 @@ void dotprod(type *result,type*a,type*b,int len){
 #endif
 }
 
-type sumLrkUki( type*l, type*u,int r, int i,int n) {
+#define trans_Next(i,m,n)\
+((i)%(n)*(m))+((i)/(n))
+
+#define trans_Prev(i,m,n)\
+((i)%(m)*(n))+((i)/(m))
+
+
+/// change mtx to mtx(T) without alloc space
+void transMoveData(type *mtx,int i,int m,int n){
+    type s = mtx[i];
+    int cur = i;
+    int pre = trans_Prev(i,m,n);
+    while (pre!=i){
+        mtx[cur]=mtx[pre];
+        cur = pre;
+        pre = trans_Prev(cur,m,n);
+    }
+    mtx[cur] = s;
+}
+void trans_to_T_matrix(type*A,int m,int n){
+    //  MALLOC(tempA,type,m*n);
+    int k = m*n;
+    for(int i = 0 ; i < k ; ++i){
+        int next = trans_Next(i,m,n);
+        while (next>i){
+            next = trans_Next(next,m,n);
+        }
+        if(next==i){
+            transMoveData(A,i,m,n);
+        }
+    }
+}
+
+
+void setXtoA(type *X,type A,int len){
+#pragma omp parallel for
+    for(int i = 0 ; i < len ; ++i){
+        X[i] = A;
+    }
+}
+
+
+///
+type sumLrkUki( const type*l, const type*u,int r, int i,int n) {
     type re = 0.0;
-    type *bel = l+r*n;
-    type *beu = u+i*n;
+    const type *bel = l+r*n;
+    const type *beu = u+i*n;
     dotprod(&re,bel,beu,r);
     return re;
 }
 
-type sumLikUkr( type*l, type*u,int r, int i,int n){
+type sumLikUkr( const type*l, const type*u,int r, int i,int n){
     type re = 0.0;
-    type *bel = l+i*n;
-    type *beu = u+r*n;
+    const type *bel = l+i*n;
+    const type *beu = u+r*n;
     dotprod(&re,bel,beu,r);
     return re;
 }
+
 
 void calLow(const type*A,type*x,const type *b,int n){///no parallel
     for(int i = 0 ; i < n ; ++i){
@@ -207,22 +218,25 @@ void calLow(const type*A,type*x,const type *b,int n){///no parallel
         }
         x[i] = (b[i]-k)/A[i*n+i];
     }
+
 }
 
-void calUp(const type *A,type*x,const type *b,int n){///no parallel
-    for(int i = n-1 ; i >= 0 ; --i){
+void calUp(const type *A,type*x,const type *b,int n) {///no parallel
+    for (int i = n - 1; i >= 0; --i) {
         type k = 0;
-        for(int j = i ; j < n ; ++j){
-            k+=x[j]*A[i+j*n];
+        for (int j = i; j < n; ++j) {
+            k += x[j] * A[i + j * n];
         }
-        x[i] = (b[i]-k)/A[i*n+i];
+        x[i] = (b[i] - k) / A[i * n + i];
     }
 }
-type calSum(type *l,int i,int k,int n){
+
+/// row i product row k in length k
+type calSum(const type *l,int i,int k,int n){
     type ret = 0.0;
-    type *bel = l+i*n;
-    type *enl = l+i*n+k;
-    type *belk= l+k*n;
+    const type *bel = l+i*n;
+    const type *enl = l+i*n+k;
+    const type *belk= l+k*n;
     while (bel!=enl){
         ret+=(*bel)*(*belk);
         ++bel;
@@ -230,6 +244,8 @@ type calSum(type *l,int i,int k,int n){
     }
     return ret;
 }
+
+
 type* loadMtx(const char * filePath,int *n,int *m){
     FILE *fp = fopen(filePath,"r");
     fscanf(fp,"%d %d",n,m);
@@ -260,7 +276,7 @@ void loadA_b(char*filePath,type **A,type **b,int *n) {///alloc a memory
     }
 }
 
-void showMtx(type *a,int n,int m){
+void showMtx(const type *a,int n,int m){
     printf("[");
     for(int i = 0 ; i < n ; ++i){
         printf("[");
@@ -282,16 +298,18 @@ void axpby(type a,const type *x,type b,type*y,int n){
     }
 }
 
+/// change vec2norm to one
 void eable(type *A,int n){
     type res;
     dotprod(&res,A,A,n);
     res = sqrt(res);
     if(!isZero(res))
-    for(int i = 0 ; i < n ; ++i){
-        A[i]/=res;
-    }
+        for(int i = 0 ; i < n ; ++i){
+            A[i]/=res;
+        }
 }
 
+/// change first element to one
 void one_able(type *A,int n){
     type f=A[0];
     for(int i = 0 ; i < n ; ++i){
@@ -299,11 +317,11 @@ void one_able(type *A,int n){
     }
 }
 
-void ll_matvec(type *y,type *A,type *x,int m,int n){
-    type *bA = A;
-    type *eA = A+m*n;
-    type *bx = x;
-    type *ex = x+n;
+void ll_matvec(type *y,const type *A,const type *x,int m,int n){
+    const type *bA = A;
+    const type *eA = A+m*n;
+    const type *bx = x;
+    const type *ex = x+n;
     type *by = y;
     for(;bA!=eA;){
         if(bx==ex){
@@ -316,19 +334,20 @@ void ll_matvec(type *y,type *A,type *x,int m,int n){
     }
 }
 
-void matvec(type *y,type *A,type *x,int m,int n){
+void matvec(type *y,const type *A,const type *x,int m,int n){
 #pragma omp parallel for
     for(int i = 0 ; i < m ; ++i){
         dotprod(y+i,A+i*n,x,n);
     }
 }
-void residual(type *A,type*x,type *b,type *y,int n){
+
+void residual(const type *A,const type*x,const type *b,type *y,int n){
     for(int i = 0 ; i < n ; ++i)y[i] = 0.0;
     matvec(y,A,x,n,n);
     for(int i = 0 ; i < n ; ++i)y[i] = b[i] - y[i];
 }
 
-type getF(type *a,type *A,int n,type *temp){////using temp storage
+type getF(const type *a,const type *A,int n,type *temp){////using temp storage
     type ret = 0;
     memset(temp,0, sizeof(type)*n);
     matvec(temp,A,a,n,n);
@@ -336,16 +355,10 @@ type getF(type *a,type *A,int n,type *temp){////using temp storage
     return ret;
 }
 
-double dealRes(type *A,type *x,type *b,int cnt,int maxiter,int n){
-    /*if(maxiter==-1){
-        printf("true,with deal %d\n",cnt);
-    }else if(cnt==-1){
-        printf("error:");
-    }*/
+double dealRes(const type *A,const type *x,const type *b,int cnt,int maxiter,int n){
     double s = 0;
     type *y = malloc(sizeof(type)*n);
     residual(A,x,b,y,n);
-
     for(int i = 0 ; i < n ; ++i){
         s+=y[i]*y[i];
     }
@@ -353,7 +366,7 @@ double dealRes(type *A,type *x,type *b,int cnt,int maxiter,int n){
     return sqrt(s);
 }
 
-void matmat(type *C,type *A,type *B,int m,int k,int n){
+void matmat(type *C,const type *A,type *B,int m,int k,int n){
     trans_to_T_matrix(B,k,n);
 
     memset(C,0, sizeof(type)*m*n);
@@ -368,7 +381,7 @@ void matmat(type *C,type *A,type *B,int m,int k,int n){
     trans_to_T_matrix(B,n,k);
 }
 
-void matmat_transB(type *C,type *A,type *B,int m,int k,int n){
+void matmat_transB(type *C,const type *A,const type *B,int m,int k,int n){
     memset(C,0, sizeof(type)*m*n);
 #pragma omp parallel for
     for(int i = 0 ; i < m ; ++i){
@@ -462,7 +475,7 @@ void gauss(type *A,type *x,type *b,int n){
     free(staj);
 }
 
-void lu_crout(type *A,type *x,type *b,int n){
+void lu_crout(const type *A,type *x,const type *b,int n){
     type *l = (type *)malloc(sizeof(type)*n*n);
     type *u = (type *)malloc(sizeof(type)*n*n);
     for(int i = 0 ; i < n ; ++i){
@@ -485,7 +498,7 @@ void lu_crout(type *A,type *x,type *b,int n){
     free(u);
 }
 
-void lu_doolittle(type *A,type *x,type *b,int n){
+void lu_doolittle(const type *A,type *x,const type *b,int n){
     type *l = (type *)malloc(sizeof(type)*n*n);
     type *u = (type *)malloc(sizeof(type)*n*n);
     for(int i = 0 ; i < n ; ++i){
@@ -508,10 +521,10 @@ void lu_doolittle(type *A,type *x,type *b,int n){
     free(u);
 }
 
-void cholesky(type *A,type *x,type *b,int n){
-    type *l = (type *)malloc(sizeof(type)*n*n);
+void cholesky(const type *A,type *x,const type *b,int n){
+    type *l = (type *)calloc(sizeof(type),n*n);
     for(int k = 0 ; k < n ; ++k){
-        type sum = calSum(l,k,k,n);
+        type sum = calSum(l,k,k,n);///dotproduct of line i(n),k(n)
         sum = A[k*n+k]-sum;
         if(sum>0){
             l[k*n+k] = sqrt(1.0*sum);
@@ -579,14 +592,12 @@ void gs(type *A, type *x, type *b, int n, int *iter, int *maxiter, type threshol
         dot = 0.0;
         curS = A[i*n+i];
         dotprod(&dot,A+i*n,x,n);
-        // dotprod(&dot,A+i*n,x,n);
         type c = b[i] - dot;
         type xx = x[i];
         if(!isZero(curS)) {
             x[i] = x[i] + 1.0*c/curS;
         }
         else x[i] = 1.0;
-        //    printf("%.5f ",x[i]);
         if(fabsf(xx - x[i]) > threshold){
             canExit = false;
         }
@@ -642,11 +653,11 @@ void cg(type *A, type *x, type *b, int n, int *iter, int *maxiter, type threshol
     MALLOC(temp,type,n);
     for (int i = 0; i < n; ++i)x[i] = 0.0;
     type rdot, rdot_1 = 1.0;
+    type vecb;
+    dotprod(&vecb,b,b,n);
+    vecb = sqrtf(vecb)*threshold;
+    dotprod(&rdot, r, r, n);
     for (*iter = 0; *iter < *maxiter; ++*iter) {
-        dotprod(&rdot, r, r, n);
-        if (sqrt(rdot) < RESPRE) {
-            break;
-        }
         type beta;
         if (!*iter);
         else {
@@ -663,6 +674,8 @@ void cg(type *A, type *x, type *b, int n, int *iter, int *maxiter, type threshol
             r[i] -= temp[i] * alpha;
         }
         rdot_1 = rdot;
+        dotprod(&rdot, r, r, n);
+        if(rdot<vecb)break;
     }
     free(temp);
     free(r);
@@ -672,7 +685,7 @@ void cg(type *A, type *x, type *b, int n, int *iter, int *maxiter, type threshol
 type bisection(type (*func)(type),type left,type right,int* maxiter,type threshold){
     type ret = (right+left)/2;
     int cnt = 0;
-    while (fabs(right-left)>threshold){
+    while (fabsf(right-left)>threshold){
         if(cnt>*maxiter){
             *maxiter = -1;///no solve
             break;
@@ -700,7 +713,7 @@ type fixedpoint(type (*func)(type),type init,int *maxiter,type threshold){
         ++cnt;
         init = p;
         p = func(p)+p;
-    }while (fabs(p-init)>threshold);
+    }while (fabsf(p-init)>threshold);
     *maxiter = cnt;
     return p;
 }
@@ -716,7 +729,7 @@ type newtonraphson(type (*func)(type),type (*funcderivative)(type),type init,int
         ++cnt;
         init = x;
         x = x-func(x)/funcderivative(x);
-    }while (fabs(x-init)>threshold);
+    }while (fabsf(x-init)>threshold);
     *maxiter = cnt;
     return x;
 }
@@ -734,7 +747,7 @@ type secant(type (*func)(type),type initx0,type initx1,int *maxiter,type thresho
         k = (y-func(initx1))/(initx0-initx1);
         initx1 = initx0;
         initx0 = initx0 - y/k;
-    }while (fabs(initx0-initx1)>threshold);
+    }while (fabsf(initx0-initx1)>threshold);
     *maxiter = cnt;
     return (initx0+initx1)/2;
 }
@@ -859,8 +872,8 @@ void cubic_spline_interpolation(int n,const type *x,type *y,type*a,type threshol
     curL+=len;
     deal_dif2(curL+4*(n-2),x[n-1],4,1);////1
 
-   // showMtx(A,len,len);
-  //  showMtx(Y,len,1);
+    // showMtx(A,len,len);
+    //  showMtx(Y,len,1);
     /////1+1+n+3*n-6 = 4*n-4
 
     int cnt=0,maxcnt = 1000;
@@ -894,7 +907,7 @@ void power(type *eigenvalues,type*eigen_vec,type *A,int n,int *maxiter,type thre
     free(eigenvector_new);
 }
 
-void geteigenVec(type *eigenValues,type *eigenVec,type *A,int n){
+void geteigenVec(const type *eigenValues,type *eigenVec,type *A,int n){
     MALLOC(teM,type,n*n);
     MALLOC(Ans,type,n*n);
     memset(Ans,0, sizeof(type)*n*n);
@@ -912,9 +925,12 @@ void geteigenVec(type *eigenValues,type *eigenVec,type *A,int n){
         matvec(teM+i*n,A,eigenVec+i*n,n,n);
     }
      */
-    matmat_transB(teM,eigenVec,A,n,n,n);
-   // trans_to_T_matrix(teM,n,n);
-    showMtx(teM,n,n);
+    free(Ans);
+    free(teM);
+    free(Ans);
+    //matmat_transB(teM,eigenVec,A,n,n,n);
+    // trans_to_T_matrix(teM,n,n);
+   // showMtx(teM,n,n);
 }
 
 void descend_power(type *ans,type *eigenVec,type *A,int n,int *maxiter,type threshold){
@@ -945,7 +961,7 @@ void descend_power(type *ans,type *eigenVec,type *A,int n,int *maxiter,type thre
 #define show(x,ch)\
 printf("%.5lf%c",x,ch);fflush(stdout)
 void schmidt_orthogonalization(type *A,int m,int n){
-  ///  int flag = n<m;
+    ///  int flag = n<m;
     trans_to_T_matrix(A,m,n);
     MALLOC(beta_vec,(A),n);
     MALLOC(alph_vec,(A),n);
@@ -972,7 +988,7 @@ void schmidt_orthogonalization(type *A,int m,int n){
                     axpby(-dot_alpha[j] / dot_beta[j], beta_vec[j], 1, alph_vec[i], m);
             }
         }
-     //  exit(0);
+        //  exit(0);
     }
     for(int i = 0 ; i < n ;++i){
         eable(alph_vec[i],m);
@@ -989,11 +1005,11 @@ void qr(type*Q,type*R,type *A,int m,int n){
     /// can means calculator vector
     memcpy(Q,A, sizeof(type)*n*m);
     schmidt_orthogonalization(Q,m,n);
-  //  printf("ins:");
-   // showMtx(Q,m,n);
+    //  printf("ins:");
+    // showMtx(Q,m,n);
     trans_to_T_matrix(Q,m,n);
     matmat(R,Q,A,n,m,n);
- //   trans_to_T_matrix(Q,m,n);
+    //   trans_to_T_matrix(Q,m,n);
 }
 
 #define Sp(x) ((x)*(x))
@@ -1178,9 +1194,9 @@ typedef struct csr{
     type *va;
 }csr;
 void csrmm(const int *ia,const int *ja, const type *va,
-        const int *ib, const int *jb, const type *vb,
-        csr*ans,
-        int m, int k, int n) {
+           const int *ib, const int *jb, const type *vb,
+           csr*ans,
+           int m, int k, int n) {
     MALLOC(anscol,type,n);
     ans->ia = (int*)malloc((m+1)* sizeof(int));
     MALLOC(ctemp,ans->ja,m);
@@ -1234,10 +1250,10 @@ void csrmm(const int *ia,const int *ja, const type *va,
 
 
 void tridiagonalization(type *A,type *T,type *P,int n){
-    MALLOC(p1,type,n);
-    MALLOC(p2,type,n);
-    MALLOC(w,type,n);
-    MALLOC(wp,type,n);
+    CALLOC(p1,type,n);
+    CALLOC(p2,type,n);
+    CALLOC(w,type,n);
+    CALLOC(wp,type,n);
     memset(p1,0,sizeof(n));
     p1[0]=1.0;
     matvec(wp,A,p1,n,n);
@@ -1247,6 +1263,7 @@ void tridiagonalization(type *A,type *T,type *P,int n){
     for(int i=0;i<n;i++){
         w[i]=wp[i]-alpha*p1[i];
     }
+
     for(int i=0;i<n;i++){
         P[i*n]=p1[i];
     }
@@ -1258,7 +1275,7 @@ void tridiagonalization(type *A,type *T,type *P,int n){
         T[j*n+j-1]=beta;
         for(int i=0;i<n;i++){
             if(!isZero(beta))
-            p2[i]=w[i]/beta;
+                p2[i]=w[i]/beta;
             else p2[i] = w[i];
         }
         matvec(wp,A,p2,n,n);
@@ -1298,17 +1315,16 @@ void matmatMatTrans(type *P,type*T,int n,int m){
 }
 void lanczos(type *image,type*U,type*sigma,int n) {
 
-    MALLOC(P,type,n*n);
-    MALLOC(T,type,n*n);
-
+    CALLOC(P,type,n*n);
+    CALLOC(T,type,n*n);
+    //showMtx(image,n,n);
     tridiagonalization(image, T, P, n);
 
-    int maxs = 20;
-   // showMtx(T,n,n);
+    int maxs = 1000;
+    //showMtx(T,n,n);
     qrqeigensolver(sigma, U, T, n, &maxs, 0.000000001);
-
+    printf("%d\n",maxs);
     matmat_transB(T,P,U,n,n,n);
-
     memcpy(U,T, sizeof(type)*n*n);
 
     free(T);
@@ -1331,9 +1347,9 @@ void matMdiag(type*A,type *diag,int n,int m){////n*m m
 
 void lanczosOne(type*image,type*compress,type compression_rate,int n){
     CALLOC(sigma,type,n*n);
-
+    //  showMtx(image,n,n);
     lanczos(image,compress,sigma,n);
-
+    //  showMtx(compress,n,n);
     type sum = 0;
     for(int i = 0 ; i < n ; ++i){
         sum+=fabsf(sigma[i]);
@@ -1344,7 +1360,7 @@ void lanczosOne(type*image,type*compress,type compression_rate,int n){
         if(cur/sum>compression_rate)break;
         cur+=fabsf(sigma[m]);
     }
-
+    m = n;
     MALLOC(Temp,type,n*m);
     drill(Temp,compress,n,m);///n m
     matMdiag(Temp,sigma,n,m);///
@@ -1378,15 +1394,13 @@ void svd(type *img,int n){
     toDiag(ans,n);
     MALLOC(kk,type,n*n);
 
-   // trans_to_T_matrix(Ue,n,n);
+    // trans_to_T_matrix(Ue,n,n);
     matmat(kk,Ue,ans,n,n,n);
     matmat(ans,kk,Ve,n,n,n);
     showMtx(img,n,n);
     showMtx(ans,n,n);
 }
-/*
- *
-A= U SIGME V
- */
+
+
 
 #endif //NUMBER_BASEOPT_H
